@@ -23,6 +23,7 @@ import (
 	"codex-ssh-skill/internal/hosts"
 	"codex-ssh-skill/internal/jobs"
 	"codex-ssh-skill/internal/mcp"
+	"codex-ssh-skill/internal/playbook"
 	"codex-ssh-skill/internal/proxy"
 	iruntime "codex-ssh-skill/internal/runtime"
 	"codex-ssh-skill/internal/secrets"
@@ -82,6 +83,8 @@ func (a App) Run(args []string) int {
 		return a.runProxy(paths, cfg, inv, logger, args[1:])
 	case "job":
 		return a.runJob(paths, cfg, inv, logger, args[1:])
+	case "playbook":
+		return a.runPlaybook(paths, cfg, inv, logger, args[1:])
 	case "audit":
 		return a.runAudit(cfg, logger, args[1:])
 	case "diagnose":
@@ -98,6 +101,8 @@ func (a App) Run(args []string) int {
 		return a.runGet(args[1:])
 	case "sync":
 		return a.runSync(args[1:])
+	case "health":
+		return a.runHealth(paths, cfg, inv, args[1:])
 	case "help", "--help", "-h":
 		a.printUsage()
 		return 0
@@ -1221,6 +1226,106 @@ func (a App) printAuditEvents(events []model.AuditEvent, format string) int {
 	return 0
 }
 
+func (a App) runPlaybook(paths model.Paths, cfg model.Config, inv model.Inventory, logger audit.Logger, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh playbook <run|check> <file.yaml> [--dry-run]")
+		return 2
+	}
+
+	switch args[0] {
+	case "check":
+		return a.runPlaybookCheck(args[1:])
+	case "run":
+		return a.runPlaybookRun(paths, cfg, inv, logger, args[1:])
+	default:
+		fmt.Fprintf(a.Stderr, "unknown playbook subcommand: %s\n", args[0])
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh playbook <run|check> <file.yaml> [--dry-run]")
+		return 2
+	}
+}
+
+func (a App) runPlaybookCheck(args []string) int {
+	fs := flag.NewFlagSet("playbook check", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh playbook check <file.yaml>")
+		return 2
+	}
+
+	pb, err := playbook.Load(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "load playbook: %v\n", err)
+		return 1
+	}
+	if err := playbook.Validate(pb); err != nil {
+		fmt.Fprintf(a.Stderr, "validation failed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(a.Stdout, "playbook %q is valid (%d steps)\n", pb.Name, len(pb.Steps))
+	return 0
+}
+
+func (a App) runPlaybookRun(paths model.Paths, cfg model.Config, inv model.Inventory, logger audit.Logger, args []string) int {
+	fs := flag.NewFlagSet("playbook run", flag.ContinueOnError)
+	fs.SetOutput(a.Stderr)
+	dryRun := fs.Bool("dry-run", false, "print what would be executed without running")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh playbook run <file.yaml> [--dry-run]")
+		return 2
+	}
+
+	pb, err := playbook.Load(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "load playbook: %v\n", err)
+		return 1
+	}
+	if err := playbook.Validate(pb); err != nil {
+		fmt.Fprintf(a.Stderr, "validation failed: %v\n", err)
+		return 1
+	}
+
+	svc := executor.Service{Runner: a.Runner, Logger: logger, Config: cfg}
+	result, err := playbook.Run(pb, inv, cfg, svc, playbook.Options{DryRun: *dryRun})
+	if err != nil {
+		fmt.Fprintf(a.Stderr, "playbook error: %v\n", err)
+		return 1
+	}
+
+	// Print step results
+	for _, sr := range result.Results {
+		status := "ok"
+		if sr.Skipped {
+			status = "skipped"
+		} else if sr.Err != nil || sr.ExitCode != 0 {
+			status = "FAILED"
+		}
+		fmt.Fprintf(a.Stdout, "[%s] %s.%s: %s\n", status, sr.Alias, sr.StepName, sr.Exec)
+		if sr.Stdout != "" {
+			for _, line := range strings.Split(strings.TrimRight(sr.Stdout, "\n"), "\n") {
+				fmt.Fprintf(a.Stdout, "  %s\n", line)
+			}
+		}
+		if sr.Stderr != "" && (sr.Err != nil || sr.ExitCode != 0) {
+			for _, line := range strings.Split(strings.TrimRight(sr.Stderr, "\n"), "\n") {
+				fmt.Fprintf(a.Stderr, "  %s\n", line)
+			}
+		}
+	}
+
+	// Summary
+	fmt.Fprintf(a.Stderr, "--- %s: %d changed, %d skipped, %d errors ---\n", result.Name, result.Changed, result.Skipped, result.Errors)
+	if result.Failed {
+		return 1
+	}
+	return 0
+}
+
 func (a App) printUsage() {
 	fmt.Fprintln(a.Stderr, `codex-ssh: OpenSSH wrapper for hosts, exec, shell, tunnel, proxy, job and audit operations
 
@@ -1233,7 +1338,8 @@ Usage:
   codex-ssh tunnel <list|stop> ...
   codex-ssh proxy [<alias> | --host <host>] --local <port> [--user <user>] [--via <jump>] [--background]
   codex-ssh proxy <list|stop> ...
-  codex-ssh job <run|status|attach|stop|logs> ...
+	codex-ssh job <run|status|attach|stop|logs> ...
+  codex-ssh playbook <run|check> <file.yaml> [--dry-run]
   codex-ssh audit <tail|query> ...
   codex-ssh diagnose [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>]
   codex-ssh connections                  show active SSH control sockets

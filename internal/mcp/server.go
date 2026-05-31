@@ -351,6 +351,20 @@ func (s *Server) listTools() MCPToolsList {
 					"properties": map[string]interface{}{},
 				},
 			},
+			{
+				Name:        "ssh_health_check",
+				Description: "Check health status of a remote host (CPU, memory, disk, load)",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"host": map[string]interface{}{
+							"type":        "string",
+							"description": "Host alias or endpoint to check",
+						},
+					},
+					"required": []string{"host"},
+				},
+			},
 		},
 	}
 }
@@ -379,6 +393,8 @@ func (s *Server) callTool(name string, args map[string]interface{}) MCPToolCallR
 		return s.toolHostsReload()
 	case "ssh_connections":
 		return s.toolConnections()
+	case "ssh_health_check":
+		return s.toolHealthCheck(args)
 	default:
 		return MCPToolCallResult{
 			Content: []MCPContent{{Type: "text", Text: fmt.Sprintf("unknown tool: %s", name)}},
@@ -837,6 +853,20 @@ func (s *Server) toolConnections() MCPToolCallResult {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errorResult(fmt.Sprintf("connections failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolHealthCheck(args map[string]interface{}) MCPToolCallResult {
+	host, _ := args["host"].(string)
+	if host == "" {
+		return errorResult("missing required parameter: host")
+	}
+
+	cmd := exec.Command("codex-ssh", "health", "check", host)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("health check failed: %v\n%s", err, string(output)))
 	}
 	return textResult(string(output))
 }

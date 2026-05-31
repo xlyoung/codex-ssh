@@ -53,7 +53,7 @@ func (a App) allTags(inv model.Inventory) []string {
 }
 
 func (a App) generateBashCompletion(inv model.Inventory) string {
-	subcommands := []string{"hosts", "secret", "exec", "shell", "tunnel", "proxy", "job", "audit", "diagnose", "mcp", "completion", "help"}
+	subcommands := []string{"hosts", "secret", "exec", "shell", "tunnel", "proxy", "job", "playbook", "audit", "diagnose", "mcp", "completion", "help"}
 	aliases := a.hostAliases(inv)
 	tags := a.allTags(inv)
 
@@ -147,6 +147,14 @@ func (a App) generateBashCompletion(inv model.Inventory) string {
                 COMPREPLY=($(compgen -W "serve" -- "$cur"))
             fi
             ;;
+        playbook)
+            local playbook_subcommands="run check"
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "$playbook_subcommands" -- "$cur"))
+            elif [ "$cword" -eq 3 ]; then
+                COMPREPLY=($(compgen -o default -W "--dry-run" -- "$cur"))
+            fi
+            ;;
         completion)
             if [ "$cword" -eq 2 ]; then
                 COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
@@ -161,7 +169,7 @@ complete -F _codex_ssh codex-ssh
 }
 
 func (a App) generateZshCompletion(inv model.Inventory) string {
-	subcommands := []string{"hosts", "secret", "exec", "shell", "tunnel", "proxy", "job", "audit", "diagnose", "mcp", "completion", "help"}
+	subcommands := []string{"hosts", "secret", "exec", "shell", "tunnel", "proxy", "job", "playbook", "audit", "diagnose", "mcp", "completion", "help"}
 	aliases := a.hostAliases(inv)
 	tags := a.allTags(inv)
 
@@ -245,6 +253,10 @@ _codex_ssh() {
                 mcp)
                     _arguments \
                         '1:mcp_subcommand:(serve)'
+                    ;;
+                playbook)
+                    _arguments \
+                        '1:playbook_subcommand:(run check)'
                     ;;
                 completion)
                     _arguments \
@@ -337,6 +349,10 @@ complete -c codex-ssh -n '__fish_seen_subcommand_from job' -a 'status' -d 'Check
 complete -c codex-ssh -n '__fish_seen_subcommand_from job' -a 'attach' -d 'Attach to job output'
 complete -c codex-ssh -n '__fish_seen_subcommand_from job' -a 'stop' -d 'Stop a job'
 complete -c codex-ssh -n '__fish_seen_subcommand_from job' -a 'logs' -d 'View job logs'
+
+# playbook subcommands
+complete -c codex-ssh -n '__fish_seen_subcommand_from playbook' -a 'run' -d 'Run a playbook'
+complete -c codex-ssh -n '__fish_seen_subcommand_from playbook' -a 'check' -d 'Validate a playbook'
 
 # audit subcommands
 complete -c codex-ssh -n '__fish_seen_subcommand_from audit' -a 'tail' -d 'Tail audit log'
