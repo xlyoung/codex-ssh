@@ -1,4 +1,5 @@
 <p align="center">
+  <img src="assets/logo.svg" alt="Codex SSH" width="200">
   <h1 align="center">⚙️ Codex SSH</h1>
   <p align="center"><strong>AI-native SSH management — let your AI assistant manage servers for you.</strong></p>
 </p>

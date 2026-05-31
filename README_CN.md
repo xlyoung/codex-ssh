@@ -1,4 +1,5 @@
 <p align="center">
+  <img src="assets/logo.svg" alt="Codex SSH" width="200">
   <h1 align="center">⚙️ Codex SSH</h1>
   <p align="center"><strong>AI 原生的 SSH 管理工具 — 让 AI 助手自动管理你的服务器。</strong></p>
 </p>
