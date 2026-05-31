@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -89,6 +90,8 @@ func (a App) Run(args []string) int {
 		return a.runMCP(args[1:])
 	case "completion":
 		return a.runCompletion(inv, args[1:])
+	case "connections":
+		return a.runConnections(paths)
 	case "put":
 		return a.runPut(args[1:])
 	case "get":
@@ -228,6 +231,33 @@ func (a App) runHosts(paths model.Paths, cfg model.Config, inv model.Inventory, 
 			via = strings.Join(viaAliases(resolved.Via), ",")
 		}
 		fmt.Fprintf(a.Stdout, "host %s reachable target=%s via=%s tmux=%s nohup=%s\n", args[1], resolved.Host, via, caps["tmux"], caps["nohup"])
+		return 0
+	case "reload":
+		newInv, err := hosts.Load(paths.HostsFile)
+		if err != nil {
+			fmt.Fprintf(a.Stderr, "reload hosts: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(a.Stdout, "reloaded %d hosts from %s\n", len(newInv.Hosts), paths.HostsFile)
+		return 0
+	case "discover":
+		if len(args) < 2 {
+			fmt.Fprintln(a.Stderr, "usage: hosts discover <cidr>")
+			return 2
+		}
+		discovered, err := hosts.Discover(args[1], 22, 5*time.Second)
+		if err != nil {
+			fmt.Fprintf(a.Stderr, "discover: %v\n", err)
+			return 1
+		}
+		if len(discovered) == 0 {
+			fmt.Fprintln(a.Stdout, "no hosts found")
+			return 0
+		}
+		for _, h := range discovered {
+			fmt.Fprintf(a.Stdout, "%s\t%d\t%s\n", h.Host, h.Port, h.Banner)
+		}
+		fmt.Fprintf(a.Stdout, "found %d host(s)\n", len(discovered))
 		return 0
 	default:
 		fmt.Fprintf(a.Stderr, "unknown hosts subcommand: %s\n", args[0])
@@ -411,8 +441,31 @@ func (a App) runExec(paths model.Paths, cfg model.Config, inv model.Inventory, l
 	addTargetFlags(fs, &target, false)
 	cwd := fs.String("cwd", "", "remote working directory")
 	timeout := fs.Duration("timeout", 0, "command timeout, e.g. 30s")
+	sudoFlag := fs.Bool("sudo", false, "execute with sudo")
+	suUser := fs.String("su", "", "execute as user via su")
 	if err := fs.Parse(parsedArgs); err != nil {
 		return 2
+	}
+
+	if *sudoFlag && *suUser != "" {
+		fmt.Fprintln(a.Stderr, "--sudo and --su are mutually exclusive")
+		return 2
+	}
+	if *sudoFlag {
+		sudoPassword, err := a.readPassword("Sudo password: ")
+		if err != nil {
+			fmt.Fprintf(a.Stderr, "read sudo password: %v\n", err)
+			return 1
+		}
+		command = fmt.Sprintf(`printf '%%s\n' %s | sudo -S sh -c %s`, shellQuote(sudoPassword), shellQuote(command))
+	}
+	if *suUser != "" {
+		suPassword, err := a.readPassword(fmt.Sprintf("Password for %s: ", *suUser))
+		if err != nil {
+			fmt.Fprintf(a.Stderr, "read password: %v\n", err)
+			return 1
+		}
+		command = fmt.Sprintf(`printf '%%s\n' %s | su - %s -c %s`, shellQuote(suPassword), *suUser, shellQuote(command))
 	}
 
 	resolved, err := resolveTarget(cfg, inv, alias, target)
@@ -1172,9 +1225,9 @@ func (a App) printUsage() {
 	fmt.Fprintln(a.Stderr, `codex-ssh: OpenSSH wrapper for hosts, exec, shell, tunnel, proxy, job and audit operations
 
 Usage:
-  codex-ssh hosts <list|show|set|import-ssh-config|remove|test> ...
+  codex-ssh hosts <list|show|set|import-ssh-config|remove|test|reload|discover> ...
   codex-ssh secret <set|get|delete> [<alias-or-target> | --host <host>] [--user <user>] [--port <port>]
-  codex-ssh exec [<alias> | @tag | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] -- <command>
+  codex-ssh exec [<alias> | @tag | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] [--sudo] [--su <user>] -- <command>
   codex-ssh shell [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>]
   codex-ssh tunnel [<alias> | --host <host>] --local <port> --target <host:port> [--user <user>] [--via <jump>] [--ttl <duration>] [--background]
   codex-ssh tunnel <list|stop> ...
@@ -1183,6 +1236,7 @@ Usage:
   codex-ssh job <run|status|attach|stop|logs> ...
   codex-ssh audit <tail|query> ...
   codex-ssh diagnose [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>]
+  codex-ssh connections                  show active SSH control sockets
   codex-ssh mcp serve                   start MCP server over stdio
   codex-ssh completion [bash|zsh|fish]   generate shell completions
 
@@ -1525,4 +1579,43 @@ func compactCommand(command string) string {
 		return command[:77] + "..."
 	}
 	return command
+}
+
+func (a App) runConnections(paths model.Paths) int {
+	controlDir := paths.ControlDir
+	entries, err := os.ReadDir(controlDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintln(a.Stdout, "no active connections")
+			return 0
+		}
+		fmt.Fprintf(a.Stderr, "read control dir: %v\n", err)
+		return 1
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".sock") {
+			continue
+		}
+		sockPath := filepath.Join(controlDir, name)
+		conn, err := net.DialTimeout("unix", sockPath, 200*time.Millisecond)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+		fmt.Fprintf(a.Stdout, "%s\t%s\n", name, sockPath)
+		count++
+	}
+	if count == 0 {
+		fmt.Fprintln(a.Stdout, "no active connections")
+	}
+	return 0
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

@@ -233,6 +233,124 @@ func (s *Server) listTools() MCPToolsList {
 					},
 				},
 			},
+			{
+				Name:        "ssh_sftp_put",
+				Description: "Upload a local file to a remote server via SFTP",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"host": map[string]interface{}{
+							"type":        "string",
+							"description": "Host alias or endpoint (user@host:port)",
+						},
+						"local_path": map[string]interface{}{
+							"type":        "string",
+							"description": "Path to local file",
+						},
+						"remote_path": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination path on remote server",
+						},
+					},
+					"required": []string{"host", "local_path", "remote_path"},
+				},
+			},
+			{
+				Name:        "ssh_sftp_get",
+				Description: "Download a file from a remote server via SFTP",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"host": map[string]interface{}{
+							"type":        "string",
+							"description": "Host alias or endpoint (user@host:port)",
+						},
+						"remote_path": map[string]interface{}{
+							"type":        "string",
+							"description": "Path to remote file",
+						},
+						"local_path": map[string]interface{}{
+							"type":        "string",
+							"description": "Destination path on local machine",
+						},
+					},
+					"required": []string{"host", "remote_path", "local_path"},
+				},
+			},
+			{
+				Name:        "ssh_sftp_sync",
+				Description: "Sync a local directory to a remote directory (incremental)",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"host": map[string]interface{}{
+							"type":        "string",
+							"description": "Host alias or endpoint (user@host:port)",
+						},
+						"local_dir": map[string]interface{}{
+							"type":        "string",
+							"description": "Local directory path",
+						},
+						"remote_dir": map[string]interface{}{
+							"type":        "string",
+							"description": "Remote directory path",
+						},
+					},
+					"required": []string{"host", "local_dir", "remote_dir"},
+				},
+			},
+			{
+				Name:        "ssh_sudo_exec",
+				Description: "Execute a command on a remote host with sudo privileges",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"host": map[string]interface{}{
+							"type":        "string",
+							"description": "Host alias or endpoint",
+						},
+						"command": map[string]interface{}{
+							"type":        "string",
+							"description": "Command to execute with sudo",
+						},
+						"as_user": map[string]interface{}{
+							"type":        "string",
+							"description": "Run as this user (default: root). Use 'sudo' for sudo, or username for su.",
+						},
+					},
+					"required": []string{"host", "command"},
+				},
+			},
+			{
+				Name:        "ssh_hosts_discover",
+				Description: "Discover SSH hosts in a network CIDR range",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cidr": map[string]interface{}{
+							"type":        "string",
+							"description": "CIDR range to scan (e.g. '192.168.1.0/24')",
+						},
+					},
+					"required": []string{"cidr"},
+				},
+			},
+			{
+				Name:        "ssh_hosts_reload",
+				Description: "Reload the host inventory from hosts.toml",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			{
+				Name:        "ssh_connections",
+				Description: "List active SSH connections/control sockets",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
 		},
 	}
 }
@@ -247,6 +365,20 @@ func (s *Server) callTool(name string, args map[string]interface{}) MCPToolCallR
 		return s.toolDiagnose(args)
 	case "ssh_audit":
 		return s.toolAudit(args)
+	case "ssh_sftp_put":
+		return s.toolSFTPPut(args)
+	case "ssh_sftp_get":
+		return s.toolSFTPGet(args)
+	case "ssh_sftp_sync":
+		return s.toolSFTPSync(args)
+	case "ssh_sudo_exec":
+		return s.toolSudoExec(args)
+	case "ssh_hosts_discover":
+		return s.toolHostsDiscover(args)
+	case "ssh_hosts_reload":
+		return s.toolHostsReload()
+	case "ssh_connections":
+		return s.toolConnections()
 	default:
 		return MCPToolCallResult{
 			Content: []MCPContent{{Type: "text", Text: fmt.Sprintf("unknown tool: %s", name)}},
@@ -590,4 +722,134 @@ func firstNonZero(items ...int) int {
 		}
 	}
 	return 0
+}
+
+// toolSFTPPut uploads a file to a remote host.
+func (s *Server) toolSFTPPut(args map[string]interface{}) MCPToolCallResult {
+	host, _ := args["host"].(string)
+	localPath, _ := args["local_path"].(string)
+	remotePath, _ := args["remote_path"].(string)
+
+	if host == "" || localPath == "" || remotePath == "" {
+		return errorResult("missing required parameters: host, local_path, remote_path")
+	}
+
+	cmd := exec.Command("codex-ssh", "put", host, localPath, remotePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("sftp put failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolSFTPGet downloads a file from a remote host.
+func (s *Server) toolSFTPGet(args map[string]interface{}) MCPToolCallResult {
+	host, _ := args["host"].(string)
+	remotePath, _ := args["remote_path"].(string)
+	localPath, _ := args["local_path"].(string)
+
+	if host == "" || remotePath == "" || localPath == "" {
+		return errorResult("missing required parameters: host, remote_path, local_path")
+	}
+
+	cmd := exec.Command("codex-ssh", "get", host, remotePath, localPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("sftp get failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolSFTPSync syncs a directory to a remote host.
+func (s *Server) toolSFTPSync(args map[string]interface{}) MCPToolCallResult {
+	host, _ := args["host"].(string)
+	localDir, _ := args["local_dir"].(string)
+	remoteDir, _ := args["remote_dir"].(string)
+
+	if host == "" || localDir == "" || remoteDir == "" {
+		return errorResult("missing required parameters: host, local_dir, remote_dir")
+	}
+
+	cmd := exec.Command("codex-ssh", "sync", host, localDir, remoteDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("sftp sync failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolSudoExec executes a command with sudo privileges.
+func (s *Server) toolSudoExec(args map[string]interface{}) MCPToolCallResult {
+	host, _ := args["host"].(string)
+	command, _ := args["command"].(string)
+	asUser, _ := args["as_user"].(string)
+
+	if host == "" || command == "" {
+		return errorResult("missing required parameters: host, command")
+	}
+
+	var cmdArgs []string
+	cmdArgs = append(cmdArgs, "exec", host)
+
+	if asUser == "" || asUser == "sudo" {
+		cmdArgs = append(cmdArgs, "--sudo")
+	} else {
+		cmdArgs = append(cmdArgs, "--su", asUser)
+	}
+
+	cmdArgs = append(cmdArgs, "--", command)
+	cmd := exec.Command("codex-ssh", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("sudo exec failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolHostsDiscover scans a CIDR range for SSH hosts.
+func (s *Server) toolHostsDiscover(args map[string]interface{}) MCPToolCallResult {
+	cidr, _ := args["cidr"].(string)
+	if cidr == "" {
+		return errorResult("missing required parameter: cidr")
+	}
+
+	cmd := exec.Command("codex-ssh", "hosts", "discover", cidr)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("hosts discover failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolHostsReload reloads the host inventory.
+func (s *Server) toolHostsReload() MCPToolCallResult {
+	cmd := exec.Command("codex-ssh", "hosts", "reload")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("hosts reload failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+// toolConnections lists active SSH connections.
+func (s *Server) toolConnections() MCPToolCallResult {
+	cmd := exec.Command("codex-ssh", "connections")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("connections failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func textResult(text string) MCPToolCallResult {
+	return MCPToolCallResult{
+		Content: []MCPContent{{Type: "text", Text: text}},
+	}
+}
+
+func errorResult(msg string) MCPToolCallResult {
+	return MCPToolCallResult{
+		Content: []MCPContent{{Type: "text", Text: msg}},
+		IsError: true,
+	}
 }
