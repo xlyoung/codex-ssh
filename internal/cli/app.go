@@ -89,6 +89,12 @@ func (a App) Run(args []string) int {
 		return a.runMCP(args[1:])
 	case "completion":
 		return a.runCompletion(inv, args[1:])
+	case "put":
+		return a.runPut(args[1:])
+	case "get":
+		return a.runGet(args[1:])
+	case "sync":
+		return a.runSync(args[1:])
 	case "help", "--help", "-h":
 		a.printUsage()
 		return 0
