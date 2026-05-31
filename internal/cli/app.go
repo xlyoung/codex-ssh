@@ -21,6 +21,7 @@ import (
 	"codex-ssh-skill/internal/executor"
 	"codex-ssh-skill/internal/hosts"
 	"codex-ssh-skill/internal/jobs"
+	"codex-ssh-skill/internal/mcp"
 	"codex-ssh-skill/internal/proxy"
 	iruntime "codex-ssh-skill/internal/runtime"
 	"codex-ssh-skill/internal/secrets"
@@ -84,6 +85,10 @@ func (a App) Run(args []string) int {
 		return a.runAudit(cfg, logger, args[1:])
 	case "diagnose":
 		return a.runDiagnose(paths, cfg, inv, logger, args[1:])
+	case "mcp":
+		return a.runMCP(args[1:])
+	case "completion":
+		return a.runCompletion(inv, args[1:])
 	case "help", "--help", "-h":
 		a.printUsage()
 		return 0
@@ -377,10 +382,22 @@ func (a App) runSecret(cfg model.Config, inv model.Inventory, args []string) int
 func (a App) runExec(paths model.Paths, cfg model.Config, inv model.Inventory, logger audit.Logger, args []string) int {
 	opts, command, ok := splitRemoteCommandArgs(args)
 	if !ok {
-		fmt.Fprintln(a.Stderr, "usage: exec [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] -- <command>")
+		fmt.Fprintln(a.Stderr, "usage: exec [<alias> | @tag | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] -- <command>")
 		return 2
 	}
 	alias, parsedArgs := parseLeadingAlias(opts)
+
+	// Detect @tag syntax for multi-machine execution
+	if strings.HasPrefix(alias, "@") {
+		fs := flag.NewFlagSet("exec", flag.ContinueOnError)
+		fs.SetOutput(a.Stderr)
+		cwd := fs.String("cwd", "", "remote working directory")
+		timeout := fs.Duration("timeout", 0, "command timeout, e.g. 30s")
+		if err := fs.Parse(parsedArgs); err != nil {
+			return 2
+		}
+		return a.runMultiExec(paths, cfg, inv, logger, alias, command, *cwd, *timeout)
+	}
 
 	fs := flag.NewFlagSet("exec", flag.ContinueOnError)
 	fs.SetOutput(a.Stderr)
@@ -1039,6 +1056,27 @@ func (a App) runDiagnose(paths model.Paths, cfg model.Config, inv model.Inventor
 	return 0
 }
 
+func (a App) runMCP(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(a.Stderr, "mcp requires a subcommand")
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh mcp serve")
+		return 2
+	}
+	switch args[0] {
+	case "serve":
+		server := mcp.NewServer(os.Stdin, a.Stdout, a.Stderr)
+		if err := server.Run(); err != nil {
+			fmt.Fprintf(a.Stderr, "mcp serve: %v\n", err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(a.Stderr, "unknown mcp subcommand: %s\n", args[0])
+		fmt.Fprintln(a.Stderr, "usage: codex-ssh mcp serve")
+		return 2
+	}
+}
+
 func (a App) preparePasswordAuthEnv(ctx context.Context, paths model.Paths, cfg model.Config, resolved model.ResolvedHost, rawTarget string) (map[string]string, func(), error) {
 	if resolved.Auth != "password" {
 		return nil, func() {}, nil
@@ -1130,7 +1168,7 @@ func (a App) printUsage() {
 Usage:
   codex-ssh hosts <list|show|set|import-ssh-config|remove|test> ...
   codex-ssh secret <set|get|delete> [<alias-or-target> | --host <host>] [--user <user>] [--port <port>]
-  codex-ssh exec [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] -- <command>
+  codex-ssh exec [<alias> | @tag | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>] [--timeout <duration>] -- <command>
   codex-ssh shell [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>] [--cwd <dir>]
   codex-ssh tunnel [<alias> | --host <host>] --local <port> --target <host:port> [--user <user>] [--via <jump>] [--ttl <duration>] [--background]
   codex-ssh tunnel <list|stop> ...
@@ -1138,7 +1176,14 @@ Usage:
   codex-ssh proxy <list|stop> ...
   codex-ssh job <run|status|attach|stop|logs> ...
   codex-ssh audit <tail|query> ...
-  codex-ssh diagnose [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>]`)
+  codex-ssh diagnose [<alias> | --host <host>] [--user <user>] [--via <jump>] [--auth <mode>]
+  codex-ssh mcp serve                   start MCP server over stdio
+  codex-ssh completion [bash|zsh|fish]   generate shell completions
+
+Multi-machine execution (tag syntax):
+  codex-ssh exec @all "uname -a"         run on all hosts
+  codex-ssh exec @web "nginx -t"         run on hosts tagged 'web'
+  codex-ssh exec @web,@db "df -h"        run on hosts tagged 'web' or 'db'`)
 }
 
 func resolveTunnelTTL(cfg model.Config, raw string) (time.Duration, error) {
