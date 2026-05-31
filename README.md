@@ -38,6 +38,13 @@ Traditional SSH tools serve humans. Codex SSH serves **AI agents** — with an i
 - ⚡ **Parallel Execution** — Run commands across multiple servers simultaneously with `@tag` syntax
 - 🔍 **Diagnostics** — One-command health checks: tmux, nohup, docker, sudo detection
 - 🔧 **Shell Completions** — Bash, Zsh, and Fish with dynamic host/tag awareness
+- 📦 **SFTP File Transfer** — Upload, download, and sync files with `put`, `get`, `sync` commands
+- 🔑 **Privilege Escalation** — Run commands with `sudo` or `su` via `exec --sudo`/`--su`
+- 🔄 **Dynamic Host Management** — Hot reload inventory and network discovery with `hosts reload`/`discover`
+- 📝 **Playbook Engine** — Define multi-step deployment workflows in YAML (beta)
+- 🏥 **Health Check System** — Monitor CPU, memory, disk, and load across all servers
+- 🔑 **SSH Key Management** — List, check, and manage keys across files, SSH agent, and OS keychain
+- 📊 **Audit Statistics** — Query audit logs with time range, export to JSON/CSV, log rotation
 
 ---
 

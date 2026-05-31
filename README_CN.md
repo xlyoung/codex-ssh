@@ -38,6 +38,13 @@ Codex SSH 是一款 **AI 原生的 SSH 管理工具**，专为 Codex、Claude、
 - ⚡ **并行执行** — 使用 `@tag` 语法在多台服务器上同时执行命令
 - 🔍 **服务器诊断** — 一键检测：tmux、nohup、docker、sudo
 - 🔧 **Shell 补全** — Bash、Zsh、Fish 自动感知主机和标签
+- 📦 **SFTP 文件传输** — 使用 `put`、`get`、`sync` 命令上传、下载和同步文件
+- 🔑 **权限提升** — 通过 `exec --sudo`/`--su` 以 sudo 或 su 权限执行命令
+- 🔄 **动态主机管理** — 使用 `hosts reload`/`discover` 热重载清单和网络发现
+- 📝 **Playbook 引擎** — 用 YAML 定义多步部署工作流（Beta）
+- 🏥 **健康检查系统** — 监控所有服务器的 CPU、内存、磁盘和负载
+- 🔑 **SSH 密钥管理** — 跨文件、SSH Agent 和 OS Keychain 列出、检查和管理密钥
+- 📊 **审计统计** — 使用时间范围查询审计日志、导出 JSON/CSV、日志轮转
 
 ---
 

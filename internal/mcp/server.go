@@ -365,6 +365,96 @@ func (s *Server) listTools() MCPToolsList {
 					"required": []string{"host"},
 				},
 			},
+			{
+				Name:        "ssh_keys_list",
+				Description: "List all SSH keys from local files, SSH agent, and OS keychain",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			{
+				Name:        "ssh_keys_check",
+				Description: "Check SSH key health: permissions, public key existence, agent loading",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			{
+				Name:        "ssh_keys_agent",
+				Description: "Check SSH agent status and socket availability",
+				InputSchema: map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			{
+				Name:        "ssh_playbook_run",
+				Description: "Execute a YAML playbook on target hosts",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"playbook": map[string]interface{}{
+							"type":        "string",
+							"description": "Path to the YAML playbook file",
+						},
+						"dry_run": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Preview commands without executing (default: false)",
+						},
+					},
+					"required": []string{"playbook"},
+				},
+			},
+			{
+				Name:        "ssh_playbook_check",
+				Description: "Validate a YAML playbook file for syntax errors",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"playbook": map[string]interface{}{
+							"type":        "string",
+							"description": "Path to the YAML playbook file",
+						},
+					},
+					"required": []string{"playbook"},
+				},
+			},
+			{
+				Name:        "ssh_audit_stats",
+				Description: "Get statistics about audit log events (counts by action, host, status)",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"since": map[string]interface{}{
+							"type":        "string",
+							"description": "Start date for stats (YYYY-MM-DD)",
+						},
+						"until": map[string]interface{}{
+							"type":        "string",
+							"description": "End date for stats (YYYY-MM-DD)",
+						},
+					},
+				},
+			},
+			{
+				Name:        "ssh_audit_rotate",
+				Description: "Rotate audit logs: compress old files, delete very old ones",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"max_age_days": map[string]interface{}{
+							"type":        "number",
+							"description": "Compress logs older than N days (default: 30)",
+						},
+						"delete_age_days": map[string]interface{}{
+							"type":        "number",
+							"description": "Delete logs older than N days (default: 365, 0 to skip)",
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -395,6 +485,20 @@ func (s *Server) callTool(name string, args map[string]interface{}) MCPToolCallR
 		return s.toolConnections()
 	case "ssh_health_check":
 		return s.toolHealthCheck(args)
+	case "ssh_keys_list":
+		return s.toolKeysList()
+	case "ssh_keys_check":
+		return s.toolKeysCheck()
+	case "ssh_keys_agent":
+		return s.toolKeysAgent()
+	case "ssh_playbook_run":
+		return s.toolPlaybookRun(args)
+	case "ssh_playbook_check":
+		return s.toolPlaybookCheck(args)
+	case "ssh_audit_stats":
+		return s.toolAuditStats(args)
+	case "ssh_audit_rotate":
+		return s.toolAuditRotate(args)
 	default:
 		return MCPToolCallResult{
 			Content: []MCPContent{{Type: "text", Text: fmt.Sprintf("unknown tool: %s", name)}},
@@ -867,6 +971,101 @@ func (s *Server) toolHealthCheck(args map[string]interface{}) MCPToolCallResult 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errorResult(fmt.Sprintf("health check failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolKeysList() MCPToolCallResult {
+	cmd := exec.Command("codex-ssh", "keys", "list")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("keys list failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolKeysCheck() MCPToolCallResult {
+	cmd := exec.Command("codex-ssh", "keys", "check")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("keys check failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolKeysAgent() MCPToolCallResult {
+	cmd := exec.Command("codex-ssh", "keys", "agent")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("keys agent failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolPlaybookRun(args map[string]interface{}) MCPToolCallResult {
+	playbook, _ := args["playbook"].(string)
+	if playbook == "" {
+		return errorResult("missing required parameter: playbook")
+	}
+
+	dryRun, _ := args["dry_run"].(bool)
+	cmdArgs := []string{"playbook", "run", playbook}
+	if dryRun {
+		cmdArgs = append(cmdArgs, "--dry-run")
+	}
+
+	cmd := exec.Command("codex-ssh", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("playbook run failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolPlaybookCheck(args map[string]interface{}) MCPToolCallResult {
+	playbook, _ := args["playbook"].(string)
+	if playbook == "" {
+		return errorResult("missing required parameter: playbook")
+	}
+
+	cmd := exec.Command("codex-ssh", "playbook", "check", playbook)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("playbook check failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolAuditStats(args map[string]interface{}) MCPToolCallResult {
+	cmdArgs := []string{"audit", "stats"}
+	if since, ok := args["since"].(string); ok && since != "" {
+		cmdArgs = append(cmdArgs, "--since", since)
+	}
+	if until, ok := args["until"].(string); ok && until != "" {
+		cmdArgs = append(cmdArgs, "--until", until)
+	}
+
+	cmd := exec.Command("codex-ssh", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("audit stats failed: %v\n%s", err, string(output)))
+	}
+	return textResult(string(output))
+}
+
+func (s *Server) toolAuditRotate(args map[string]interface{}) MCPToolCallResult {
+	cmdArgs := []string{"audit", "rotate"}
+	if maxAge, ok := args["max_age_days"].(float64); ok && maxAge > 0 {
+		cmdArgs = append(cmdArgs, "--max-age", fmt.Sprintf("%d", int(maxAge)))
+	}
+	if deleteAge, ok := args["delete_age_days"].(float64); ok && deleteAge >= 0 {
+		cmdArgs = append(cmdArgs, "--delete-age", fmt.Sprintf("%d", int(deleteAge)))
+	}
+
+	cmd := exec.Command("codex-ssh", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errorResult(fmt.Sprintf("audit rotate failed: %v\n%s", err, string(output)))
 	}
 	return textResult(string(output))
 }

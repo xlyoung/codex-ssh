@@ -163,7 +163,11 @@ type AuditQuery struct {
 	HostAlias string
 	Action    string
 	Status    string
+	Command   string
+	Since     time.Time
+	Until     time.Time
 	Limit     int
+	Export    string // "json" or "csv"
 }
 
 type ProcessState struct {

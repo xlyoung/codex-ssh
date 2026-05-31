@@ -103,6 +103,8 @@ func (a App) Run(args []string) int {
 		return a.runSync(args[1:])
 	case "health":
 		return a.runHealth(paths, cfg, inv, args[1:])
+	case "keys":
+		return a.runKeys(paths, cfg, inv, args[1:])
 	case "help", "--help", "-h":
 		a.printUsage()
 		return 0
@@ -985,7 +987,7 @@ func (a App) loadJobStateAndHost(paths model.Paths, cfg model.Config, inv model.
 
 func (a App) runAudit(_ model.Config, logger audit.Logger, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(a.Stderr, "usage: audit <tail|query> [filters]")
+		fmt.Fprintln(a.Stderr, "usage: audit <tail|query|stats|rotate> [filters]")
 		return 2
 	}
 
@@ -1005,24 +1007,14 @@ func (a App) runAudit(_ model.Config, logger audit.Logger, args []string) int {
 		}
 		return a.printAuditEvents(events, *format)
 	case "query":
-		fs := flag.NewFlagSet("audit query", flag.ContinueOnError)
-		fs.SetOutput(a.Stderr)
-		hostAlias := fs.String("host", "", "filter by host alias")
-		action := fs.String("action", "", "filter by action")
-		status := fs.String("status", "", "filter by status")
-		limit := fs.Int("limit", 100, "max events")
-		format := fs.String("format", "json", "output format: json or text")
-		if err := fs.Parse(args[1:]); err != nil {
-			return 2
-		}
-		events, err := logger.Query(model.AuditQuery{HostAlias: *hostAlias, Action: *action, Status: *status, Limit: *limit})
-		if err != nil {
-			fmt.Fprintf(a.Stderr, "audit query: %v\n", err)
-			return 1
-		}
-		return a.printAuditEvents(events, *format)
+		return a.runAuditQueryEnhanced(logger, args[1:])
+	case "stats":
+		return a.runAuditStatsEnhanced(logger, args[1:])
+	case "rotate":
+		return a.runAuditRotateEnhanced(logger, args[1:])
 	default:
 		fmt.Fprintf(a.Stderr, "unknown audit subcommand: %s\n", args[0])
+		fmt.Fprintln(a.Stderr, "available: tail, query, stats, rotate")
 		return 2
 	}
 }
