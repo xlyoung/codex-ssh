@@ -127,16 +127,16 @@ macOS Keychain 保存密码本体，不在工作目录落地。
 
 这意味着：
 
-- `shell 10.8.22.171` 会先匹配 `[hosts."10.8.22.171"]`
+- `shell 192.168.1.101` 会先匹配 `[hosts."192.168.1.101"]`
 - 若存在该 key，则自动复用其中的 `via`、`auth`、`secret_ref`、`workdir`
-- 若不存在，则把 `10.8.22.171` 当作 ad-hoc 目标处理
+- 若不存在，则把 `192.168.1.101` 当作 ad-hoc 目标处理
 - 裸目标不会自动猜测跳板链；如果 inventory 没有对应 key，就必须显式传 `--via`
 
 支持的裸目标格式：
 
-- `10.8.22.171`
-- `cyg@10.8.22.171`
-- `cyg@10.8.22.171:22`
+- `192.168.1.101`
+- `appuser@192.168.1.101`
+- `appuser@192.168.1.101:22`
 
 ## Command Surface
 
@@ -213,9 +213,9 @@ macOS Keychain 保存密码本体，不在工作目录落地。
 
 推荐用户体验：
 
-- 对长期主机，直接配置 `[hosts."10.8.22.171"]`
-- 使用 `secret set --host 10.8.22.171 --user cyg`
-- 后续直接执行 `shell 10.8.22.171`
+- 对长期主机，直接配置 `[hosts."192.168.1.101"]`
+- 使用 `secret set --host 192.168.1.101 --user appuser`
+- 后续直接执行 `shell 192.168.1.101`
 
 ## Askpass Execution Strategy
 
@@ -328,7 +328,7 @@ macOS Keychain 保存密码本体，不在工作目录落地。
 
 2. 轻量集成测试
 - inventory 优先、裸目标 fallback 的解析顺序
-- `[hosts."10.8.22.171"]` 可通过 `shell 10.8.22.171` 命中
+- `[hosts."192.168.1.101"]` 可通过 `shell 192.168.1.101` 命中
 - `auth=password + via` 时正确查找 secret
 - `secret_ref` 优先级正确
 - 缺 secret 时错误消息正确
@@ -338,12 +338,16 @@ macOS Keychain 保存密码本体，不在工作目录落地。
 - `hosts list`、`diagnose`、`secret` 命令帮助输出正确
 
 4. 手工验收
-- 跳板机执行
-- 密码认证执行
-- 首次 host key 接受后重试
-- tunnel
-- proxy
-- 长任务 attach/status/logs
+- 已批准用户主路径（inventory IP key + via + password + 自动取密）按以下命令顺序执行：
+  - `codex-ssh secret set --host 192.168.1.101 --user appuser`
+  - `codex-ssh diagnose 192.168.1.101`
+  - `codex-ssh shell 192.168.1.101`
+  - `codex-ssh exec 192.168.1.101 -- "docker pull ..."`
+- 其余回归项：
+  - 首次 host key 接受后重试
+  - tunnel
+  - proxy
+  - 长任务 attach/status/logs
 
 ## Milestones
 

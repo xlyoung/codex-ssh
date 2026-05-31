@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# Build artifacts
+codex-ssh
+*.exe
+.build/
+
+# Git worktrees
+.worktrees/
+worktrees/
+
+# Test and temporary files
+output/
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+vendor/
+
+# Personal configuration (user's real config, not for git)
+defaults/hosts.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

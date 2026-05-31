@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex SSH"
+  short_description: "通过 SSH、跳板机、ad-hoc 与代理访问服务器"
+  default_prompt: "Use $codex-ssh for SSH access, bastion/jump-host traversal, ad-hoc --host commands, password-auth with macOS Keychain-backed secrets when available, LocalForward tunnels, SOCKS5 proxy, long-running remote jobs, diagnose flows, and ~/.ssh/config import."
+
+policy:
+  allow_implicit_invocation: true

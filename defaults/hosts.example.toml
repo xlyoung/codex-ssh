@@ -1,0 +1,37 @@
+version = 1
+
+# Example: Bastion/Jump Host
+[hosts."bastion"]
+host = "bastion.example.com"
+user = "admin"
+port = 22
+auth = "agent"
+tags = ["bastion", "jump"]
+
+# Example: App Server via Bastion (password auth)
+[hosts."app-server"]
+host = "app.internal.example.com"
+user = "appuser"
+port = 22
+via = ["bastion"]
+auth = "password"
+secret_ref = "ssh://appuser@app.internal.example.com:22"
+tags = ["app", "password-auth", "through-bastion"]
+# Password is not stored here. Use `codex-ssh secret set --host app.internal.example.com --user appuser` to store in system keychain.
+
+# Example: Database Server via Bastion (agent auth)
+[hosts."db-server"]
+host = "db.internal.example.com"
+user = "dbadmin"
+port = 22
+via = ["bastion"]
+auth = "agent"
+tags = ["database", "through-bastion"]
+
+# Example: Direct access server
+[hosts."web-server"]
+host = "web.example.com"
+user = "www"
+port = 22
+auth = "agent"
+tags = ["web", "direct"]
